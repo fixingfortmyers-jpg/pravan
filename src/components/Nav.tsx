@@ -2,6 +2,7 @@ import Button from './Button'
 
 const links = [
   { href: '/', label: 'Product' },
+  { href: '/teardown', label: 'Teardown' },
   { href: '/pricing', label: 'Pricing' },
   { href: '/docs', label: 'Docs' },
   { href: '/faq', label: 'FAQ' },

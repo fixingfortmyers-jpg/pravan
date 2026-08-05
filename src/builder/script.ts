@@ -72,6 +72,72 @@ export const ALL_FILES: string[] = STEPS.flatMap(s => s.reveals)
 // per event (all cleared together on unmount/replay) and maps each to a
 // reducer action. Kept as pure data so the pacing can be tuned in one place.
 
+export type SwarmAgentId = 'planner' | 'worker1' | 'worker2' | 'worker3' | 'worker4'
+export type SwarmStatus = 'queued' | 'thinking' | 'done' | 'failed' | 'escalating'
+
+export type SwarmAgentConfig = {
+  id: SwarmAgentId
+  name: string
+  role: string
+  lines: string[]
+}
+
+// lines[] are shown one at a time, typing progressively, as the agent's card
+// status moves queued -> thinking -> (failed -> escalating ->) done. worker4
+// is scripted to hit a test failure and escalate before finishing, to sell
+// the escalation-ladder story.
+export const SWARM_AGENTS: Record<SwarmAgentId, SwarmAgentConfig> = {
+  planner: {
+    id: 'planner',
+    name: 'Fable',
+    role: 'planner',
+    lines: [
+      'Decomposing into 4 work items with per-item done-criteria…',
+      'Assigning schema, UI, confirmation flow, and tests to parallel workers…',
+    ],
+  },
+  worker1: {
+    id: 'worker1',
+    name: 'Sonnet-1',
+    role: 'schema',
+    lines: [
+      'services table needs a duration column for slot math — adding it.',
+      'Seeding sample services and time slots for the demo data.',
+    ],
+  },
+  worker2: {
+    id: 'worker2',
+    name: 'Sonnet-2',
+    role: 'auth',
+    lines: [
+      'Booking confirmation needs a stable code — generating one on submit.',
+      'Wiring the confirmation card to the booking state.',
+    ],
+  },
+  worker3: {
+    id: 'worker3',
+    name: 'Sonnet-3',
+    role: 'UI',
+    lines: [
+      'Building the service grid and time-slot grid as controlled components.',
+      'Lifting selection state to the parent so the form can validate it.',
+    ],
+  },
+  worker4: {
+    id: 'worker4',
+    name: 'Sonnet-4',
+    role: 'tests',
+    lines: [
+      'Writing a slot-overlap test before wiring the booking submit path.',
+      'test failed: slot overlap allowed',
+      'escalating to Opus — root cause: missing unique constraint',
+      'Constraint added, overlap test passing.',
+    ],
+  },
+}
+
+export const SWARM_AGENT_ORDER: SwarmAgentId[] = ['planner', 'worker1', 'worker2', 'worker3', 'worker4']
+
 export type TimelineEvent =
   | { t: number; kind: 'user-message' }
   | { t: number; kind: 'typing'; value: boolean }
@@ -80,6 +146,8 @@ export type TimelineEvent =
   | { t: number; kind: 'status-line'; stepIndex: number; lineIndex: number }
   | { t: number; kind: 'complete-step'; stepIndex: number }
   | { t: number; kind: 'final-message' }
+  | { t: number; kind: 'swarm-status'; agent: SwarmAgentId; status: SwarmStatus }
+  | { t: number; kind: 'swarm-line'; agent: SwarmAgentId; lineIndex: number }
 
 const LINE_INTERVAL_MS = 1600
 const STEP_BUFFER_MS = 1400
@@ -91,20 +159,67 @@ function buildTimeline(): TimelineEvent[] {
   events.push({ t: 2600, kind: 'typing', value: false })
   events.push({ t: 2600, kind: 'plan' })
 
+  // Planner starts thinking as soon as the plan card appears.
+  events.push({ t: 2600, kind: 'swarm-status', agent: 'planner', status: 'thinking' })
+  SWARM_AGENTS.planner.lines.forEach((_, lineIndex) => {
+    events.push({ t: 2600 + 400 + lineIndex * 700, kind: 'swarm-line', agent: 'planner', lineIndex })
+  })
+
+  const stepStarts: number[] = []
+  const stepCompletes: number[] = []
+
   let t = 2600 + 800
   STEPS.forEach((step, stepIndex) => {
+    stepStarts.push(t)
     events.push({ t, kind: 'start-step', stepIndex })
     step.statusLines.forEach((_, lineIndex) => {
       events.push({ t: t + lineIndex * LINE_INTERVAL_MS, kind: 'status-line', stepIndex, lineIndex })
     })
     const lastLineT = t + (step.statusLines.length - 1) * LINE_INTERVAL_MS
     const completeT = lastLineT + STEP_BUFFER_MS
+    stepCompletes.push(completeT)
     events.push({ t: completeT, kind: 'complete-step', stepIndex })
     t = completeT
   })
 
+  events.push({ t: stepStarts[0], kind: 'swarm-status', agent: 'planner', status: 'done' })
+
+  // worker1 (schema) works step0, tails into step1's start.
+  scheduleWorker(events, 'worker1', stepStarts[0], stepStarts[1], [0, 1])
+  // worker3 (UI) picks up at step1, works through step2's completion.
+  scheduleWorker(events, 'worker3', stepStarts[1], stepCompletes[2], [0, 1])
+  // worker2 (auth) picks up at step2, finishes with step3.
+  scheduleWorker(events, 'worker2', stepStarts[2], stepCompletes[3] - 600, [0, 1])
+  // worker4 (tests) runs through step3: thinks, fails, escalates, then done
+  // just before the final message so the escalation resolves in view.
+  scheduleWorker(events, 'worker4', stepStarts[3], stepCompletes[3] + 500, [0, 1, 2, 3])
+
   events.push({ t: t + 900, kind: 'final-message' })
   return events
+}
+
+function scheduleWorker(
+  events: TimelineEvent[],
+  agent: SwarmAgentId,
+  startT: number,
+  endT: number,
+  lineIndices: number[],
+): void {
+  events.push({ t: startT, kind: 'swarm-status', agent, status: 'thinking' })
+  const span = Math.max(endT - startT, lineIndices.length * 300)
+  lineIndices.forEach((lineIndex, i) => {
+    const lineT = startT + Math.round(((i + 1) / (lineIndices.length + 1)) * span)
+    events.push({ t: lineT, kind: 'swarm-line', agent, lineIndex })
+    // worker4's script embeds the failure/escalation as lines 1 and 2; flip
+    // the card's status chip to match so the failure is visible, not just read.
+    if (agent === 'worker4' && lineIndex === 1) {
+      events.push({ t: lineT, kind: 'swarm-status', agent, status: 'failed' })
+    }
+    if (agent === 'worker4' && lineIndex === 2) {
+      events.push({ t: lineT, kind: 'swarm-status', agent, status: 'escalating' })
+    }
+  })
+  events.push({ t: endT, kind: 'swarm-status', agent, status: 'done' })
 }
 
 export const TIMELINE: TimelineEvent[] = buildTimeline()

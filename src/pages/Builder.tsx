@@ -3,8 +3,25 @@ import Button from '../components/Button'
 import ChatPane from '../builder/ChatPane'
 import CodePane from '../builder/CodePane'
 import PreviewPane from '../builder/PreviewPane'
-import type { ChatEntry, CodeFileKey, PreviewStage, TimelineEvent } from '../builder/script'
-import { DEMO_REPLY, FINAL_MESSAGE, PROJECT_NAME, STEPS, TIMELINE, USER_PROMPT } from '../builder/script'
+import SwarmPane from '../builder/SwarmPane'
+import type {
+  ChatEntry,
+  CodeFileKey,
+  PreviewStage,
+  SwarmAgentId,
+  SwarmStatus,
+  TimelineEvent,
+} from '../builder/script'
+import {
+  DEMO_REPLY,
+  FINAL_MESSAGE,
+  PROJECT_NAME,
+  STEPS,
+  SWARM_AGENT_ORDER,
+  SWARM_AGENTS,
+  TIMELINE,
+  USER_PROMPT,
+} from '../builder/script'
 
 type BuilderState = {
   chat: ChatEntry[]
@@ -15,6 +32,16 @@ type BuilderState = {
   files: string[]
   codeFile: CodeFileKey | null
   done: boolean
+  swarmStatus: Record<SwarmAgentId, SwarmStatus>
+  swarmLines: Record<SwarmAgentId, string[]>
+}
+
+function initialSwarmStatus(): Record<SwarmAgentId, SwarmStatus> {
+  return Object.fromEntries(SWARM_AGENT_ORDER.map(id => [id, 'queued'])) as Record<SwarmAgentId, SwarmStatus>
+}
+
+function initialSwarmLines(): Record<SwarmAgentId, string[]> {
+  return Object.fromEntries(SWARM_AGENT_ORDER.map(id => [id, [] as string[]])) as Record<SwarmAgentId, string[]>
 }
 
 const initialState: BuilderState = {
@@ -26,6 +53,8 @@ const initialState: BuilderState = {
   files: [],
   codeFile: null,
   done: false,
+  swarmStatus: initialSwarmStatus(),
+  swarmLines: initialSwarmLines(),
 }
 
 type Action =
@@ -39,6 +68,8 @@ type Action =
   | { type: 'ADD_FINAL_MESSAGE' }
   | { type: 'USER_SUBMIT'; text: string }
   | { type: 'ADD_DEMO_REPLY' }
+  | { type: 'SWARM_STATUS'; agent: SwarmAgentId; status: SwarmStatus }
+  | { type: 'SWARM_LINE'; agent: SwarmAgentId; lineIndex: number }
 
 let uid = 0
 function nextId(): string {
@@ -82,6 +113,15 @@ function reducer(state: BuilderState, action: Action): BuilderState {
       return { ...state, chat: [...state.chat, { id: nextId(), kind: 'user', text: action.text }] }
     case 'ADD_DEMO_REPLY':
       return { ...state, chat: [...state.chat, { id: nextId(), kind: 'assistant', text: DEMO_REPLY }] }
+    case 'SWARM_STATUS':
+      return { ...state, swarmStatus: { ...state.swarmStatus, [action.agent]: action.status } }
+    case 'SWARM_LINE': {
+      const text = SWARM_AGENTS[action.agent].lines[action.lineIndex]
+      return {
+        ...state,
+        swarmLines: { ...state.swarmLines, [action.agent]: [...state.swarmLines[action.agent], text] },
+      }
+    }
   }
 }
 
@@ -101,13 +141,17 @@ function eventToAction(evt: TimelineEvent): Action {
       return { type: 'COMPLETE_STEP', stepIndex: evt.stepIndex }
     case 'final-message':
       return { type: 'ADD_FINAL_MESSAGE' }
+    case 'swarm-status':
+      return { type: 'SWARM_STATUS', agent: evt.agent, status: evt.status }
+    case 'swarm-line':
+      return { type: 'SWARM_LINE', agent: evt.agent, lineIndex: evt.lineIndex }
   }
 }
 
 export default function Builder() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const [runId, setRunId] = useState(0)
-  const [tab, setTab] = useState<'preview' | 'code'>('preview')
+  const [tab, setTab] = useState<'preview' | 'code' | 'swarm'>('preview')
   const timersRef = useRef<number[]>([])
 
   // Schedule the whole scripted timeline. Every timer id lands in the same
@@ -195,13 +239,20 @@ export default function Builder() {
             >
               Code
             </button>
+            <button
+              type="button"
+              onClick={() => setTab('swarm')}
+              className={`rounded-md px-3 py-1.5 text-sm transition ${
+                tab === 'swarm' ? 'bg-raised text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Swarm
+            </button>
           </div>
           <div className="min-h-0 flex-1">
-            {tab === 'preview' ? (
-              <PreviewPane stage={state.previewStage} />
-            ) : (
-              <CodePane revealedFiles={state.files} activeCodeFile={state.codeFile} />
-            )}
+            {tab === 'preview' && <PreviewPane stage={state.previewStage} />}
+            {tab === 'code' && <CodePane revealedFiles={state.files} activeCodeFile={state.codeFile} />}
+            {tab === 'swarm' && <SwarmPane status={state.swarmStatus} lines={state.swarmLines} />}
           </div>
         </div>
       </div>

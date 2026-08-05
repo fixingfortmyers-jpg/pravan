@@ -5,6 +5,7 @@ import Builder from './pages/Builder'
 import Pricing from './pages/Pricing'
 import Docs from './pages/Docs'
 import Faq from './pages/Faq'
+import Teardown from './pages/Teardown'
 
 function currentPage() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/'
@@ -13,6 +14,7 @@ function currentPage() {
     case '/pricing': return <Pricing />
     case '/docs': return <Docs />
     case '/faq': return <Faq />
+    case '/teardown': return <Teardown />
     default: return <Landing />
   }
 }
