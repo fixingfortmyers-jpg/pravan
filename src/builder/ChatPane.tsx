@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ChatEntry } from './script'
 import { PLAN_LABELS } from './script'
+import { SUGGESTIONS } from './interpret'
 
 type ChatPaneProps = {
   chat: ChatEntry[]
@@ -42,7 +43,21 @@ export default function ChatPane({ chat, typing, activeStepIndex, completedSteps
         {typing && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={handleSubmit} className="flex shrink-0 gap-2 border-t border-line p-3">
+      <div className="shrink-0 border-t border-line px-3 pt-2">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {SUGGESTIONS.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onSubmit(s)}
+              className="shrink-0 rounded-full border border-line bg-raised px-2.5 py-1 text-xs text-zinc-400 transition hover:border-accent/50 hover:text-zinc-100"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <form onSubmit={handleSubmit} className="flex shrink-0 gap-2 px-3 pb-3 pt-1">
         <input
           value={draft}
           onChange={e => setDraft(e.target.value)}

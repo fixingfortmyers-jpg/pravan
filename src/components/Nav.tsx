@@ -6,6 +6,7 @@ const links = [
   { href: '/pricing', label: 'Pricing' },
   { href: '/docs', label: 'Docs' },
   { href: '/faq', label: 'FAQ' },
+  { href: '/contact', label: 'Contact' },
 ]
 
 export default function Nav() {

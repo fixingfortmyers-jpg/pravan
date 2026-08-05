@@ -13,15 +13,16 @@ import type {
   TimelineEvent,
 } from '../builder/script'
 import {
-  DEMO_REPLY,
   FINAL_MESSAGE,
-  PROJECT_NAME,
   STEPS,
   SWARM_AGENT_ORDER,
   SWARM_AGENTS,
   TIMELINE,
   USER_PROMPT,
 } from '../builder/script'
+import type { AppSpec } from '../builder/spec'
+import { INITIAL_SPEC } from '../builder/spec'
+import { interpret } from '../builder/interpret'
 
 type BuilderState = {
   chat: ChatEntry[]
@@ -32,6 +33,7 @@ type BuilderState = {
   files: string[]
   codeFile: CodeFileKey | null
   done: boolean
+  spec: AppSpec
   swarmStatus: Record<SwarmAgentId, SwarmStatus>
   swarmLines: Record<SwarmAgentId, string[]>
 }
@@ -53,6 +55,7 @@ const initialState: BuilderState = {
   files: [],
   codeFile: null,
   done: false,
+  spec: INITIAL_SPEC,
   swarmStatus: initialSwarmStatus(),
   swarmLines: initialSwarmLines(),
 }
@@ -67,7 +70,7 @@ type Action =
   | { type: 'COMPLETE_STEP'; stepIndex: number }
   | { type: 'ADD_FINAL_MESSAGE' }
   | { type: 'USER_SUBMIT'; text: string }
-  | { type: 'ADD_DEMO_REPLY' }
+  | { type: 'APPLY_PROMPT'; text: string }
   | { type: 'SWARM_STATUS'; agent: SwarmAgentId; status: SwarmStatus }
   | { type: 'SWARM_LINE'; agent: SwarmAgentId; lineIndex: number }
 
@@ -111,8 +114,17 @@ function reducer(state: BuilderState, action: Action): BuilderState {
       }
     case 'USER_SUBMIT':
       return { ...state, chat: [...state.chat, { id: nextId(), kind: 'user', text: action.text }] }
-    case 'ADD_DEMO_REPLY':
-      return { ...state, chat: [...state.chat, { id: nextId(), kind: 'assistant', text: DEMO_REPLY }] }
+    case 'APPLY_PROMPT': {
+      const result = interpret(action.text, state.spec)
+      return {
+        ...state,
+        spec: result.spec,
+        // An edit only means anything against a rendered app, so a prompt that
+        // lands mid-build jumps the preview to the interactive stage.
+        previewStage: result.changed ? 3 : state.previewStage,
+        chat: [...state.chat, { id: nextId(), kind: 'assistant', text: result.reply }],
+      }
+    }
     case 'SWARM_STATUS':
       return { ...state, swarmStatus: { ...state.swarmStatus, [action.agent]: action.status } }
     case 'SWARM_LINE': {
@@ -174,7 +186,10 @@ export default function Builder() {
 
   function handleUserSubmit(text: string) {
     dispatch({ type: 'USER_SUBMIT', text })
-    const id = window.setTimeout(() => dispatch({ type: 'ADD_DEMO_REPLY' }), 600)
+    setTab('preview')
+    // Brief delay so the reply reads as a response instead of landing in the
+    // same frame as the message that caused it.
+    const id = window.setTimeout(() => dispatch({ type: 'APPLY_PROMPT', text }), 400)
     timersRef.current.push(id)
   }
 
@@ -189,7 +204,7 @@ export default function Builder() {
     <div className="flex h-[calc(100vh-4rem)] w-full flex-col overflow-hidden bg-ink text-zinc-100">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="font-mono text-sm text-zinc-300">{PROJECT_NAME}</span>
+          <span className="font-mono text-sm text-zinc-300">{projectSlug(state.spec.title)}</span>
           <StatusPill active={isBuilding} done={state.done} />
         </div>
         <div className="flex items-center gap-2">
@@ -250,7 +265,7 @@ export default function Builder() {
             </button>
           </div>
           <div className="min-h-0 flex-1">
-            {tab === 'preview' && <PreviewPane stage={state.previewStage} />}
+            {tab === 'preview' && <PreviewPane stage={state.previewStage} spec={state.spec} />}
             {tab === 'code' && <CodePane revealedFiles={state.files} activeCodeFile={state.codeFile} />}
             {tab === 'swarm' && <SwarmPane status={state.swarmStatus} lines={state.swarmLines} />}
           </div>
@@ -258,6 +273,10 @@ export default function Builder() {
       </div>
     </div>
   )
+}
+
+function projectSlug(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled-app'
 }
 
 function StatusPill({ active, done }: { active: boolean; done: boolean }) {
