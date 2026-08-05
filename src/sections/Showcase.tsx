@@ -4,7 +4,8 @@ type App = {
   title: string
   description: string
   prompt: string
-  mock: 'booking' | 'storefront' | 'dashboard'
+  mock: 'booking' | 'storefront' | 'dashboard' | 'corporate'
+  href?: string
 }
 
 const apps: App[] = [
@@ -25,6 +26,13 @@ const apps: App[] = [
     description: 'An ops dashboard pulling live metrics for a small team.',
     prompt: '"build an internal dashboard for tracking team ticket volume"',
     mock: 'dashboard',
+  },
+  {
+    title: 'RajIndustries',
+    description: 'A company site with services, quote requests, and contact — live on its own domain.',
+    prompt: '"build a business site for RajIndustries with a quote request form"',
+    mock: 'corporate',
+    href: 'https://rajindustries.fixingfortmyers.com',
   },
 ]
 
@@ -92,9 +100,35 @@ function DashboardMock() {
   )
 }
 
+function CorporateMock() {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between rounded-sm bg-raised p-2">
+        <div className="h-2 w-16 rounded-full bg-gradient-to-r from-accent to-accent2" />
+        <div className="flex gap-1.5">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="h-1.5 w-6 rounded-full bg-zinc-600" />
+          ))}
+        </div>
+      </div>
+      <div className="rounded-sm bg-raised p-2">
+        <div className="h-2 w-2/3 rounded-full bg-zinc-500" />
+        <div className="mt-1.5 h-1.5 w-1/2 rounded-full bg-zinc-700" />
+        <div className="mt-2 h-4 w-16 rounded-sm bg-accent/60" />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="h-8 rounded-sm bg-raised" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Mock({ kind }: { kind: App['mock'] }) {
   if (kind === 'booking') return <BookingMock />
   if (kind === 'storefront') return <StorefrontMock />
+  if (kind === 'corporate') return <CorporateMock />
   return <DashboardMock />
 }
 
@@ -107,13 +141,17 @@ export default function Showcase() {
             Real apps, <span className="text-gradient">built from a prompt</span>
           </h2>
         </div>
-        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
           {apps.map(app => (
             <div key={app.title} className="rounded-xl border border-line bg-surface p-5">
               <BrowserChrome>
                 <Mock kind={app.mock} />
               </BrowserChrome>
-              <h3 className="mt-4 text-base font-semibold text-zinc-100">{app.title}</h3>
+              <h3 className="mt-4 text-base font-semibold text-zinc-100">
+                {app.href
+                  ? <a href={app.href} className="hover:text-gradient">{app.title} ↗</a>
+                  : app.title}
+              </h3>
               <p className="mt-1 text-sm text-zinc-400">{app.description}</p>
               <p className="mt-3 font-mono text-xs text-zinc-500">{app.prompt}</p>
             </div>
